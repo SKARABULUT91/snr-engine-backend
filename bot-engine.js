@@ -9,25 +9,26 @@ puppeteer.use(StealthPlugin());
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * RENDER ÜZERİNDE CHROME YOLUNU RECURSIVE OLARAK BULUR
- * Versiyon numarası ne olursa olsun 'chrome' binary dosyasını tespit eder.
+ * RENDER ÜZERİNDE CHROME YOLUNU BULMA STRATEJİSİ (ZIRHLI MOD)
  */
 const getChromePath = () => {
-    const rootPath = '/opt/render/.cache/puppeteer/chrome';
-    
-    try {
-        if (!fs.existsSync(rootPath)) {
-            console.log("[SYSTEM] Puppeteer cache dizini henüz oluşmamış.");
-            return null;
-        }
+    // 1. STRATEJİ: Kesinleşmiş Manuel Yol (En yüksek öncelik)
+    const manualPath = '/opt/render/.cache/puppeteer/chrome/linux-147.0.7727.56/chrome-linux64/chrome';
+    if (fs.existsSync(manualPath)) {
+        console.log(`[SYSTEM] Chrome manuel yolda bulundu: ${manualPath}`);
+        return manualPath;
+    }
 
-        // Klasör ağacını derinlemesine tara
+    // 2. STRATEJİ: Recursive (Özyinelemeli) Derin Tarama
+    const rootPath = '/opt/render/.cache/puppeteer/chrome';
+    try {
+        if (!fs.existsSync(rootPath)) return null;
+
         const findBinary = (dir) => {
             const files = fs.readdirSync(dir);
             for (const file of files) {
                 const fullPath = path.join(dir, file);
                 const stat = fs.statSync(fullPath);
-                
                 if (stat.isDirectory()) {
                     const found = findBinary(fullPath);
                     if (found) return found;
@@ -38,10 +39,15 @@ const getChromePath = () => {
             return null;
         };
 
-        return findBinary(rootPath);
+        const detected = findBinary(rootPath);
+        if (detected) {
+            console.log(`[SYSTEM] Chrome derin tarama ile bulundu: ${detected}`);
+            return detected;
+        }
     } catch (err) {
-        console.error("[SYSTEM] Chrome taranırken hata:", err.message);
+        console.error("[SYSTEM] Tarama hatası:", err.message);
     }
+
     return null;
 };
 
@@ -55,13 +61,11 @@ export const startBot = async (targetUrl, proxyData) => {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     ];
 
-    // Otomatik yol tespiti (Zırhlı Mod)
     const detectedPath = getChromePath();
-    console.log(`[LAUNCH] Motor başlatılıyor. Chrome yolu: ${detectedPath || 'Varsayılan'}`);
-
+    
     const launchOptions = {
         headless: "new",
-        executablePath: detectedPath,
+        executablePath: detectedPath, // Otomatik bulunan veya manuel yol
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -74,11 +78,11 @@ export const startBot = async (targetUrl, proxyData) => {
     };
 
     if (proxyData && proxyData.host) {
-        console.log(`[NETWORK] SOCKS5 Protokolü aktif: ${proxyData.host}`);
+        console.log(`[NETWORK] Proxy Aktif: ${proxyData.host}`);
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
-    console.log("[LAUNCH] Tarayıcı kimliği oluşturuluyor...");
+    console.log("[LAUNCH] Tarayıcı başlatılıyor...");
     const browser = await puppeteer.launch(launchOptions);
     
     try {
@@ -95,26 +99,22 @@ export const startBot = async (targetUrl, proxyData) => {
         await page.setUserAgent(randomUA);
         await page.setViewport({ width: 1440, height: 900 });
 
-        console.log(`[NAVIGATION] Hedef profile sızılıyor: ${targetUrl}`);
+        console.log(`[NAVIGATION] Hedef: ${targetUrl}`);
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 90000 });
 
-        console.log("[WAIT] İnsansı analiz süreci başladı (4-8 sn)...");
+        console.log("[WAIT] İnsansı analiz...");
         await sleep(Math.floor(Math.random() * 4000) + 4000);
 
         const tweets = await page.$$('article[data-testid="tweet"]');
-        console.log(`[SCAN] ${tweets.length} adet tweet radara girdi.`);
+        console.log(`[SCAN] ${tweets.length} tweet bulundu.`);
 
         if (tweets.length > 0) {
-            const allIndices = Array.from({ length: Math.min(tweets.length, 10) }, (_, i) => i);
-            const selectedIndices = allIndices.sort(() => 0.5 - Math.random()).slice(0, 3);
-            
-            console.log(`[DECISION] Karışık inceleme listesi: ${selectedIndices.map(n => n + 1).join(', ')}`);
+            const selectedIndices = Array.from({ length: Math.min(tweets.length, 10) }, (_, i) => i)
+                .sort(() => 0.5 - Math.random())
+                .slice(0, 3);
 
             for (const index of selectedIndices) {
                 const tweet = tweets[index];
-                
-                console.log(`[ACTION] ${index + 1}. tweet mercek altına alındı.`);
-                
                 await tweet.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
                 await sleep(2500);
 
@@ -125,33 +125,23 @@ export const startBot = async (targetUrl, proxyData) => {
                 );
 
                 if (isAd) {
-                    console.log(`[TARGET FOUND] Reklam tespit edildi! İnceleme derinleştiriliyor...`);
-                    
+                    console.log(`[TARGET] Reklam yakalandı, etkileşim simüle ediliyor...`);
                     for(let j=0; j<4; j++) {
-                        const x = Math.random() * 400 + 200;
-                        const y = Math.random() * 400 + 200;
-                        await page.mouse.move(x, y);
-                        console.log(`[MOUSE] Koordinat: ${Math.floor(x)},${Math.floor(y)}`);
+                        await page.mouse.move(Math.random() * 500, Math.random() * 500);
                         await sleep(600);
                     }
-                    
-                    const inspectTime = Math.floor(Math.random() * 6000) + 5000;
-                    console.log(`[INTERACT] Reklam üzerinde ${inspectTime/1000}s beklendi.`);
-                    await sleep(inspectTime);
-                } else {
-                    console.log(`[PASS] Normal içerik görüldü, pas geçiliyor.`);
-                    await sleep(2000);
+                    await sleep(Math.floor(Math.random() * 5000) + 5000);
                 }
             }
         }
 
-        console.log("[SUCCESS] Döngü başarıyla nihayete erdirildi.");
+        console.log("[SUCCESS] Operasyon tamam.");
 
     } catch (error) {
-        console.error(`[CRITICAL ERROR] SNR ENGINE kilitlendi: ${error.message}`);
+        console.error(`[CRITICAL] Hata: ${error.message}`);
         throw error; 
     } finally {
         await browser.close();
-        console.log("[CLEANUP] Kimlik imha edildi, tarayıcı kapatıldı.");
+        console.log("[CLEANUP] Sistem kapatıldı.");
     }
 };
