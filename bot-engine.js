@@ -6,6 +6,9 @@ puppeteer.use(StealthPlugin());
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * SNR ENGINE V2 - ÜST DÜZEY OPERASYON MOTORU
+ */
 export const startBot = async (targetUrl, proxyData) => {
     const userAgents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -15,7 +18,8 @@ export const startBot = async (targetUrl, proxyData) => {
 
     const launchOptions = {
         headless: "new",
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
+        // RENDER ÜZERİNDE CHROME'UN KESİN YOLU (Hata mesajındaki versiyon sabitlendi)
+        executablePath: '/opt/render/.cache/puppeteer/chrome/linux-147.0.7727.56/chrome-linux64/chrome',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -32,6 +36,7 @@ export const startBot = async (targetUrl, proxyData) => {
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
+    console.log("[LAUNCH] Motor çalıştırılıyor...");
     const browser = await puppeteer.launch(launchOptions);
     
     try {
@@ -46,34 +51,33 @@ export const startBot = async (targetUrl, proxyData) => {
 
         const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
         await page.setUserAgent(randomUA);
-        await page.setViewport({ width: 1440, height: 900 }); // Daha doğal bir çözünürlük
+        await page.setViewport({ width: 1440, height: 900 });
 
         console.log(`[NAVIGATION] Hedef profile sızılıyor: ${targetUrl}`);
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 90000 });
 
-        // İlk yükleme sonrası doğal bekleme
-        console.log("[WAIT] Sayfa analizi yapılıyor (3-7 sn)...");
-        await sleep(Math.floor(Math.random() * 4000) + 3000);
+        console.log("[WAIT] İnsansı analiz süreci başladı (4-8 sn)...");
+        await sleep(Math.floor(Math.random() * 4000) + 4000);
 
         // Tweetleri tara
         const tweets = await page.$$('article[data-testid="tweet"]');
         console.log(`[SCAN] ${tweets.length} adet tweet radara girdi.`);
 
         if (tweets.length > 0) {
-            // İLK 10 TWEET arasından RASTGELE 3 TANE SEÇ (Operasyonun kalbi burası)
+            // İLK 10 TWEET arasından RASTGELE 3 TANE SEÇ
             const allIndices = Array.from({ length: Math.min(tweets.length, 10) }, (_, i) => i);
             const selectedIndices = allIndices.sort(() => 0.5 - Math.random()).slice(0, 3);
             
-            console.log(`[DECISION] Analiz için seçilen tweetler: ${selectedIndices.map(n => n + 1).join(', ')}`);
+            console.log(`[DECISION] Karışık inceleme listesi: ${selectedIndices.map(n => n + 1).join(', ')}`);
 
             for (const index of selectedIndices) {
                 const tweet = tweets[index];
                 
-                console.log(`[ACTION] ${index + 1}. tweet inceleniyor...`);
+                console.log(`[ACTION] ${index + 1}. tweet mercek altına alındı.`);
                 
-                // Yumuşak kaydırma (Scroll)
+                // Yumuşak kaydırma
                 await tweet.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-                await sleep(2000);
+                await sleep(2500);
 
                 // Reklam kontrolü
                 const isAd = await tweet.evaluate(el => 
@@ -83,31 +87,34 @@ export const startBot = async (targetUrl, proxyData) => {
                 );
 
                 if (isAd) {
-                    console.log(`[TARGET FOUND] Reklam tespit edildi! Odaklanılıyor...`);
+                    console.log(`[TARGET FOUND] Reklam tespit edildi! İnceleme derinleştiriliyor...`);
                     
-                    // Mouse simülasyonu: Tweet üzerinde rastgele gezinme
-                    for(let j=0; j<3; j++) {
-                        await page.mouse.move(Math.random() * 500 + 100, Math.random() * 500 + 100);
-                        await sleep(500);
+                    // Rastgele Mouse Hareketleri
+                    for(let j=0; j<4; j++) {
+                        const x = Math.random() * 400 + 200;
+                        const y = Math.random() * 400 + 200;
+                        await page.mouse.move(x, y);
+                        console.log(`[MOUSE] Koordinat: ${Math.floor(x)},${Math.floor(y)}`);
+                        await sleep(600);
                     }
                     
-                    const inspectTime = Math.floor(Math.random() * 5000) + 5000;
-                    console.log(`[INTERACT] Reklam üzerinde ${inspectTime/1000}s beklendi.`);
+                    const inspectTime = Math.floor(Math.random() * 6000) + 5000;
+                    console.log(`[INTERACT] İnceleme tamamlanıyor (${inspectTime/1000}s)...`);
                     await sleep(inspectTime);
                 } else {
-                    console.log(`[PASS] Tweet normal içerik, doğal akışa devam ediliyor.`);
+                    console.log(`[PASS] Normal içerik görüldü, pas geçiliyor.`);
                     await sleep(2000);
                 }
             }
         }
 
-        console.log("[SUCCESS] Bu döngüdeki tüm hedefler tamamlandı.");
+        console.log("[SUCCESS] Döngü başarıyla nihayete erdirildi.");
 
     } catch (error) {
-        console.error(`[CRITICAL] Bot motoru hata verdi: ${error.message}`);
+        console.error(`[CRITICAL ERROR] SNR ENGINE kilitlendi: ${error.message}`);
         throw error; 
     } finally {
         await browser.close();
-        console.log("[CLEANUP] Kimlik imha edildi, tarayıcı kapatıldı.");
+        console.log("[CLEANUP] Kimlik imha edildi, tarayıcı güvenli şekilde kapatıldı.");
     }
 };
