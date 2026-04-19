@@ -1,9 +1,10 @@
-const { join } = require('path');
+const {join} = require('path');
 
 /**
  * @type {import("puppeteer").Configuration}
  */
 module.exports = {
-  // Chrome'u kesinlikle Render'ın izin verdiği bu klasöre kurmaya zorla
-  cacheDirectory: join('/opt/render', '.cache', 'puppeteer'),
+  // Bu satır Puppeteer'a kurulumu nereye yapacağını ve 
+  // NEREDEN okuyacağını zorla söyler.
+  cacheDirectory: join(__dirname, '.cache', 'puppeteer'),
 };
