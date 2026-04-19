@@ -10,8 +10,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ÇEVRE DEĞİŞKENLERİ - Render Environment Variables'dan gelir
-// Not: Docker'da process.env üzerinden güvenle okunur
+// ÇEVRE DEĞİŞKENLERİ
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
   process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
@@ -25,45 +24,34 @@ let lastStartTime = null;
 // 1. VEKİL (PROXY) KAYDETME YOLU
 app.post('/api/save-proxy', (req, res) => {
   const { host, port, user, pass } = req.body;
-  
   if (!host || !port) {
-    console.error("[PROXY ERROR] IP veya Port eksik geldi.");
     return res.status(400).json({ message: "Geçersiz proxy bilgisi!" });
   }
-
   activeProxy = { host, port, user, pass };
-  
   console.log(`[PROXY CONFIG] SNR ENGINE Yeni Kimlik: ${host}:${port}`);
-  res.status(200).json({ 
-    message: "Vekil sunucu yapılandırması güncellendi!",
-    active_ip: host 
-  });
+  res.status(200).json({ message: "Vekil güncellendi!", active_ip: host });
 });
 
-// 2. OTOMASYON BAŞLATMA
-app.post('/api/start-automation', async (req, res) => {
+// 2. OTOMASYON BAŞLATMA (İsim Frontend ile uyumlu hale getirildi)
+app.post('/api/start-bot', async (req, res) => {
   const { url } = req.body;
 
-  if (!url) {
-    return res.status(400).json({ message: "Hedef URL belirtilmedi!" });
-  }
-
   if (currentBotStatus === "running") {
-    return res.status(400).json({ message: "Bot zaten operasyonda!" });
+    return res.status(400).json({ success: false, message: "Bot zaten operasyonda!" });
   }
 
   lastStartTime = new Date().toISOString();
   currentBotStatus = "running";
 
+  // Frontend'e anında yanıt ver (Bağlantı kopmasın)
   res.status(200).json({ 
-    message: "SNR ENGINE: Operasyon Başlatıldı", 
-    status: "active",
-    proxy_mode: activeProxy ? "SOCKS5 Active" : "Direct (No Proxy)",
-    target: url
+    success: true,
+    message: "SNR ENGINE: Hayalet Ateşlendi!", 
+    status: "active"
   });
 
   try {
-    console.log(`[EXEC] Hayalet operasyonu tetiklendi: ${url}`);
+    console.log(`[EXEC] Operasyon tetiklendi: ${url || 'Varsayılan URL'}`);
     await startBot(url, activeProxy); 
     console.log("[SUCCESS] Operasyon tamamlandı.");
   } catch (error) {
@@ -73,12 +61,19 @@ app.post('/api/start-automation', async (req, res) => {
   }
 });
 
-// 3. DASHBOARD DURUM SİNYALİ
+// 3. OTOMASYON DURDURMA (Yeni eklendi)
+app.post('/api/stop-bot', (req, res) => {
+  currentBotStatus = "idle";
+  console.log("[STOP] Operasyon durduruldu.");
+  res.status(200).json({ success: true, message: "Operasyon durduruldu" });
+});
+
+// 4. DASHBOARD DURUM SİNYALİ
 app.get('/api/bot-report', (req, res) => {
   res.status(200).json({ 
     status: currentBotStatus === "running" ? "working" : "active", 
     engine: "SNR ENGINE",
-    proxy_connected: activeProxy ? true : false,
+    proxy_connected: !!activeProxy,
     current_proxy_ip: activeProxy ? activeProxy.host : "Local Machine",
     last_run: lastStartTime,
     timestamp: new Date().toISOString()
@@ -108,12 +103,7 @@ app.post('/api/bot-data', async (req, res) => {
   }
 });
 
-// --- RENDER & DOCKER PORT BAĞLANTISI ---
-// Render process.env.PORT'u otomatik atar (genelde 10000). 
-// Eğer yoksa Docker imajındaki 10000'i kullanıyoruz.
 const PORT = process.env.PORT || 10000;
-
-// '0.0.0.0' eklemek Docker konteynerının dış dünyaya kapıyı açmasını sağlar.
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 SNR ENGINE Motoru Port ${PORT} üzerinde gazlıyor...`);
 });
