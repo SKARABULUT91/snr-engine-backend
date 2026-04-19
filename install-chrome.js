@@ -1,14 +1,22 @@
 import { execSync } from 'child_process';
 
 try {
-  console.log('--- SNR ENGINE: CHROME KURULUMU BAŞLIYOR ---');
-  // Puppeteer'ın içindeki kurulum scriptini doğrudan node ile çalıştırıyoruz
-  execSync('node node_modules/puppeteer/install.mjs', { 
+  console.log('--- [FORCE] CHROME INDIRME OPERASYONU BASLATILDI ---');
+  
+  // Puppeteer'ın kendi CLI aracını kullanarak kurulumu zorluyoruz
+  // Bu komut, ortam değişkenlerini (SKIP_DOWNLOAD vb.) baypas eder.
+  execSync('npx puppeteer browsers install chrome', {
     stdio: 'inherit',
-    env: { ...process.env, PUPPETEER_CACHE_DIR: '/opt/render/.cache/puppeteer' }
+    env: {
+      ...process.env,
+      PUPPETEER_CACHE_DIR: '/opt/render/.cache/puppeteer',
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'false'
+    }
   });
-  console.log('--- KURULUM BAŞARILI ---');
+
+  console.log('--- [SUCCESS] CHROME BINARY SISTEME ENJEKTE EDILDI ---');
 } catch (error) {
-  console.error('Kurulum hatası:', error.message);
+  console.error('--- [ERROR] KURULUM BASARISIZ ---');
+  console.error(error.message);
   process.exit(1);
 }
