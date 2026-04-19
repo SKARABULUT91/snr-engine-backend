@@ -1,10 +1,37 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import fs from 'fs';
+import path from 'path';
 
 // Stealth eklentisini aktif et
 puppeteer.use(StealthPlugin());
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * RENDER ÜZERİNDE CHROME YOLUNU OTOMATİK TESPİT EDER
+ */
+const getChromePath = () => {
+    const rootPath = '/opt/render/.cache/puppeteer/chrome';
+    
+    try {
+        if (!fs.existsSync(rootPath)) {
+            console.log("[SYSTEM] Puppeteer cache dizini bulunamadı.");
+            return null;
+        }
+
+        const versions = fs.readdirSync(rootPath);
+        for (const v of versions) {
+            const fullPath = path.join(rootPath, v, 'chrome-linux64/chrome');
+            if (fs.existsSync(fullPath)) {
+                return fullPath;
+            }
+        }
+    } catch (err) {
+        console.error("[SYSTEM] Chrome yolu taranırken hata:", err.message);
+    }
+    return null;
+};
 
 /**
  * SNR ENGINE V2 - ÜST DÜZEY OPERASYON MOTORU
@@ -16,10 +43,13 @@ export const startBot = async (targetUrl, proxyData) => {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     ];
 
+    // Otomatik yol tespiti devrede
+    const detectedPath = getChromePath();
+    console.log(`[LAUNCH] Tespit edilen Chrome: ${detectedPath || 'Varsayılan'}`);
+
     const launchOptions = {
         headless: "new",
-        // RENDER ÜZERİNDE CHROME'UN KESİN YOLU (Hata mesajındaki versiyon sabitlendi)
-        executablePath: '/opt/render/.cache/puppeteer/chrome/linux-147.0.7727.56/chrome-linux64/chrome',
+        executablePath: detectedPath,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -64,7 +94,6 @@ export const startBot = async (targetUrl, proxyData) => {
         console.log(`[SCAN] ${tweets.length} adet tweet radara girdi.`);
 
         if (tweets.length > 0) {
-            // İLK 10 TWEET arasından RASTGELE 3 TANE SEÇ
             const allIndices = Array.from({ length: Math.min(tweets.length, 10) }, (_, i) => i);
             const selectedIndices = allIndices.sort(() => 0.5 - Math.random()).slice(0, 3);
             
@@ -75,11 +104,9 @@ export const startBot = async (targetUrl, proxyData) => {
                 
                 console.log(`[ACTION] ${index + 1}. tweet mercek altına alındı.`);
                 
-                // Yumuşak kaydırma
                 await tweet.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
                 await sleep(2500);
 
-                // Reklam kontrolü
                 const isAd = await tweet.evaluate(el => 
                     el.innerText.includes('Promoted') || 
                     el.innerText.includes('Sponsorlu') || 
@@ -89,7 +116,6 @@ export const startBot = async (targetUrl, proxyData) => {
                 if (isAd) {
                     console.log(`[TARGET FOUND] Reklam tespit edildi! İnceleme derinleştiriliyor...`);
                     
-                    // Rastgele Mouse Hareketleri
                     for(let j=0; j<4; j++) {
                         const x = Math.random() * 400 + 200;
                         const y = Math.random() * 400 + 200;
