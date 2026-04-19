@@ -9,17 +9,20 @@ puppeteer.use(StealthPlugin());
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * RENDER & LINUX ÜZERİNDE CHROME BINARY DOSYASINI BULUR
- * Hem sistem dizinini hem de yerel cache dizinini tarar.
+ * RENDER ÜZERİNDE CHROME BINARY DOSYASINI DİNAMİK OLARAK BULUR
  */
 const getChromePath = () => {
-    // Taranacak olası kök dizinler
-    const possiblePaths = [
-        '/opt/render/.cache/puppeteer/chrome', // Render Sistem Dizini
-        path.join(process.cwd(), '.cache', 'puppeteer', 'chrome'), // Yerel Proje Dizini
-        path.join(process.cwd(), 'node_modules', 'puppeteer', '.local-chromium') // Eski sürümler için
+    const rootPath = process.cwd();
+    
+    // Taranacak kritik dizinler (Öncelik sırasına göre)
+    const searchDirs = [
+        path.join(rootPath, '.cache', 'puppeteer'), // .puppeteerrc.cjs ile belirlenen yerel dizin
+        '/opt/render/.cache/puppeteer',            // Render standart sistem dizini
+        path.join(rootPath, 'node_modules', 'puppeteer', '.local-chromium') // Yedek dizin
     ];
     
+    console.log("[DEBUG] Chrome arama operasyonu başlatıldı...");
+
     try {
         const findBinary = (dir) => {
             if (!fs.existsSync(dir)) return null;
@@ -39,7 +42,8 @@ const getChromePath = () => {
             return null;
         };
 
-        for (const root of possiblePaths) {
+        for (const root of searchDirs) {
+            console.log(`[DEBUG] Klasör taranıyor: ${root}`);
             const detected = findBinary(root);
             if (detected) {
                 console.log(`[SYSTEM] Chrome lokasyonu doğrulandı: ${detected}`);
@@ -49,6 +53,7 @@ const getChromePath = () => {
     } catch (err) {
         console.error("[SYSTEM] Yol tarama hatası:", err.message);
     }
+    
     return null;
 };
 
@@ -60,8 +65,12 @@ export const startBot = async (targetUrl, proxyData) => {
 
     const chromePath = getChromePath();
     
+    if (!chromePath) {
+        console.error("[FATAL] Chrome bulunamadı! Lütfen Build Command'ı kontrol edin.");
+        throw new Error("Executable Chrome binary not found.");
+    }
+
     const launchOptions = {
-        // Render gibi ortamlarda 'new' headless modu en stabil olanıdır
         headless: "new", 
         executablePath: chromePath,
         args: [
@@ -71,13 +80,14 @@ export const startBot = async (targetUrl, proxyData) => {
             '--disable-gpu',
             '--no-first-run',
             '--no-zygote',
-            '--single-process', // Kaynak tüketimini minimize eder
-            '--disable-extensions'
+            '--single-process',
+            '--disable-extensions',
+            '--disable-blink-features=AutomationControlled'
         ]
     };
 
     if (proxyData?.host) {
-        console.log(`[NETWORK] SOCKS5 Bağlantısı Kuruluyor: ${proxyData.host}`);
+        console.log(`[NETWORK] SOCKS5 Aktif: ${proxyData.host}`);
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
@@ -87,7 +97,6 @@ export const startBot = async (targetUrl, proxyData) => {
     try {
         const page = await browser.newPage();
 
-        // Proxy kimlik doğrulaması (Varsa)
         if (proxyData?.user && proxyData?.pass) {
             await page.authenticate({ username: proxyData.user, password: proxyData.pass });
         }
@@ -96,23 +105,20 @@ export const startBot = async (targetUrl, proxyData) => {
         await page.setUserAgent(randomUA);
         await page.setViewport({ width: 1366, height: 768 });
 
-        console.log(`[NAVIGATION] Hedefe sızılıyor: ${targetUrl}`);
-        // Twitter/X için timeout süresini uzun tutmak hayat kurtarır
+        console.log(`[NAVIGATION] Hedef: ${targetUrl}`);
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 90000 });
 
-        await sleep(5000);
+        // İnsansı bekleme
+        await sleep(Math.floor(Math.random() * 3000) + 5000);
 
         const tweets = await page.$$('article[data-testid="tweet"]');
-        console.log(`[SCAN] Görüş alanında ${tweets.length} tweet tespit edildi.`);
+        console.log(`[SCAN] Radarda ${tweets.length} tweet var.`);
 
         if (tweets.length > 0) {
-            // Rastgele 2 tweet seç
-            const selectedIndices = Array.from({ length: Math.min(tweets.length, 10) }, (_, i) => i)
-                .sort(() => 0.5 - Math.random())
-                .slice(0, 2);
-
-            for (const index of selectedIndices) {
-                const tweet = tweets[index];
+            // Rastgele etkileşim için tweet seçimi
+            const count = Math.min(tweets.length, 3);
+            for (let i = 0; i < count; i++) {
+                const tweet = tweets[i];
                 await tweet.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
                 await sleep(2000);
 
@@ -121,24 +127,23 @@ export const startBot = async (targetUrl, proxyData) => {
                 );
 
                 if (isAd) {
-                    console.log(`[TARGET] Reklam yakalandı! "Ghost Interaction" başlatılıyor...`);
-                    // İnsansı mouse hareketleri
+                    console.log(`[TARGET] Reklam yakalandı! "Ghost Interaction" uygulanıyor...`);
                     for(let j=0; j<4; j++) {
-                        await page.mouse.move(Math.random() * 500 + 100, Math.random() * 500 + 100);
-                        await sleep(700);
+                        await page.mouse.move(Math.random() * 600 + 100, Math.random() * 600 + 100);
+                        await sleep(800);
                     }
-                    await sleep(6000);
+                    await sleep(5000);
                 }
             }
         }
 
-        console.log("[SUCCESS] Hayalet operasyon başarıyla tamamlandı.");
+        console.log("[SUCCESS] Operasyon başarıyla tamamlandı.");
 
     } catch (error) {
-        console.error(`[CRITICAL] Operasyon sırasında motor kilitlendi: ${error.message}`);
+        console.error(`[CRITICAL] Motor kilitlendi: ${error.message}`);
         throw error; 
     } finally {
         await browser.close();
-        console.log("[CLEANUP] Tarayıcı kapatıldı, sistem izleri silindi.");
+        console.log("[CLEANUP] Sistem izleri temizlendi.");
     }
 };
