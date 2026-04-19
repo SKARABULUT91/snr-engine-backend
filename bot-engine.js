@@ -9,52 +9,19 @@ puppeteer.use(StealthPlugin());
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * RENDER ÜZERİNDE CHROME BINARY DOSYASINI DİNAMİK OLARAK BULUR
+ * DOCKER KONTEYNERI İÇİNDEKİ SABİT CHROME YOLUNU DÖNDÜRÜR
  */
 const getChromePath = () => {
-    const rootPath = process.cwd();
+    // Docker (ghcr.io/puppeteer/puppeteer) içindeki standart Chrome yolu
+    const dockerPath = '/usr/bin/google-chrome-stable';
     
-    // Taranacak kritik dizinler (Öncelik sırasına göre)
-    const searchDirs = [
-        path.join(rootPath, '.cache', 'puppeteer'), // .puppeteerrc.cjs ile belirlenen yerel dizin
-        '/opt/render/.cache/puppeteer',            // Render standart sistem dizini
-        path.join(rootPath, 'node_modules', 'puppeteer', '.local-chromium') // Yedek dizin
-    ];
-    
-    console.log("[DEBUG] Chrome arama operasyonu başlatıldı...");
-
-    try {
-        const findBinary = (dir) => {
-            if (!fs.existsSync(dir)) return null;
-            
-            const files = fs.readdirSync(dir);
-            for (const file of files) {
-                const fullPath = path.join(dir, file);
-                const stat = fs.statSync(fullPath);
-                
-                if (stat.isDirectory()) {
-                    const found = findBinary(fullPath);
-                    if (found) return found;
-                } else if (file === 'chrome' && (fullPath.includes('chrome-linux64') || fullPath.includes('linux'))) {
-                    return fullPath;
-                }
-            }
-            return null;
-        };
-
-        for (const root of searchDirs) {
-            console.log(`[DEBUG] Klasör taranıyor: ${root}`);
-            const detected = findBinary(root);
-            if (detected) {
-                console.log(`[SYSTEM] Chrome lokasyonu doğrulandı: ${detected}`);
-                return detected;
-            }
-        }
-    } catch (err) {
-        console.error("[SYSTEM] Yol tarama hatası:", err.message);
+    if (fs.existsSync(dockerPath)) {
+        console.log(`[SYSTEM] Docker Chrome yolu doğrulandı: ${dockerPath}`);
+        return dockerPath;
     }
     
-    return null;
+    // Eğer yerelde test ediyorsan veya yol farklıysa Environment Variable'dan oku
+    return process.env.PUPPETEER_EXECUTABLE_PATH || null;
 };
 
 export const startBot = async (targetUrl, proxyData) => {
@@ -66,7 +33,7 @@ export const startBot = async (targetUrl, proxyData) => {
     const chromePath = getChromePath();
     
     if (!chromePath) {
-        console.error("[FATAL] Chrome bulunamadı! Lütfen Build Command'ı kontrol edin.");
+        console.error("[FATAL] Chrome binary bulunamadı! Dockerfile ve imajı kontrol edin.");
         throw new Error("Executable Chrome binary not found.");
     }
 
@@ -91,7 +58,7 @@ export const startBot = async (targetUrl, proxyData) => {
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
-    console.log("[LAUNCH] SNR ENGINE v2 ateşleniyor...");
+    console.log("[LAUNCH] SNR ENGINE v2 (Docker Mode) ateşleniyor...");
     const browser = await puppeteer.launch(launchOptions);
     
     try {
@@ -115,7 +82,6 @@ export const startBot = async (targetUrl, proxyData) => {
         console.log(`[SCAN] Radarda ${tweets.length} tweet var.`);
 
         if (tweets.length > 0) {
-            // Rastgele etkileşim için tweet seçimi
             const count = Math.min(tweets.length, 3);
             for (let i = 0; i < count; i++) {
                 const tweet = tweets[i];
