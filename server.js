@@ -121,5 +121,3 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 SNR ENGINE Motoru Port ${PORT} üzerinde gazlıyor...`);
 });
-
-export default app; // Vercel uyumu için kalsın ama Render listen'ı kullanır.
