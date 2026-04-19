@@ -9,26 +9,38 @@ puppeteer.use(StealthPlugin());
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * RENDER ÜZERİNDE CHROME YOLUNU OTOMATİK TESPİT EDER
+ * RENDER ÜZERİNDE CHROME YOLUNU RECURSIVE OLARAK BULUR
+ * Versiyon numarası ne olursa olsun 'chrome' binary dosyasını tespit eder.
  */
 const getChromePath = () => {
     const rootPath = '/opt/render/.cache/puppeteer/chrome';
     
     try {
         if (!fs.existsSync(rootPath)) {
-            console.log("[SYSTEM] Puppeteer cache dizini bulunamadı.");
+            console.log("[SYSTEM] Puppeteer cache dizini henüz oluşmamış.");
             return null;
         }
 
-        const versions = fs.readdirSync(rootPath);
-        for (const v of versions) {
-            const fullPath = path.join(rootPath, v, 'chrome-linux64/chrome');
-            if (fs.existsSync(fullPath)) {
-                return fullPath;
+        // Klasör ağacını derinlemesine tara
+        const findBinary = (dir) => {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                const fullPath = path.join(dir, file);
+                const stat = fs.statSync(fullPath);
+                
+                if (stat.isDirectory()) {
+                    const found = findBinary(fullPath);
+                    if (found) return found;
+                } else if (file === 'chrome' && fullPath.includes('chrome-linux64')) {
+                    return fullPath;
+                }
             }
-        }
+            return null;
+        };
+
+        return findBinary(rootPath);
     } catch (err) {
-        console.error("[SYSTEM] Chrome yolu taranırken hata:", err.message);
+        console.error("[SYSTEM] Chrome taranırken hata:", err.message);
     }
     return null;
 };
@@ -43,9 +55,9 @@ export const startBot = async (targetUrl, proxyData) => {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     ];
 
-    // Otomatik yol tespiti devrede
+    // Otomatik yol tespiti (Zırhlı Mod)
     const detectedPath = getChromePath();
-    console.log(`[LAUNCH] Tespit edilen Chrome: ${detectedPath || 'Varsayılan'}`);
+    console.log(`[LAUNCH] Motor başlatılıyor. Chrome yolu: ${detectedPath || 'Varsayılan'}`);
 
     const launchOptions = {
         headless: "new",
@@ -66,7 +78,7 @@ export const startBot = async (targetUrl, proxyData) => {
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
-    console.log("[LAUNCH] Motor çalıştırılıyor...");
+    console.log("[LAUNCH] Tarayıcı kimliği oluşturuluyor...");
     const browser = await puppeteer.launch(launchOptions);
     
     try {
@@ -89,7 +101,6 @@ export const startBot = async (targetUrl, proxyData) => {
         console.log("[WAIT] İnsansı analiz süreci başladı (4-8 sn)...");
         await sleep(Math.floor(Math.random() * 4000) + 4000);
 
-        // Tweetleri tara
         const tweets = await page.$$('article[data-testid="tweet"]');
         console.log(`[SCAN] ${tweets.length} adet tweet radara girdi.`);
 
@@ -125,7 +136,7 @@ export const startBot = async (targetUrl, proxyData) => {
                     }
                     
                     const inspectTime = Math.floor(Math.random() * 6000) + 5000;
-                    console.log(`[INTERACT] İnceleme tamamlanıyor (${inspectTime/1000}s)...`);
+                    console.log(`[INTERACT] Reklam üzerinde ${inspectTime/1000}s beklendi.`);
                     await sleep(inspectTime);
                 } else {
                     console.log(`[PASS] Normal içerik görüldü, pas geçiliyor.`);
@@ -141,6 +152,6 @@ export const startBot = async (targetUrl, proxyData) => {
         throw error; 
     } finally {
         await browser.close();
-        console.log("[CLEANUP] Kimlik imha edildi, tarayıcı güvenli şekilde kapatıldı.");
+        console.log("[CLEANUP] Kimlik imha edildi, tarayıcı kapatıldı.");
     }
 };
