@@ -9,30 +9,31 @@ puppeteer.use(StealthPlugin());
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * RENDER ÜZERİNDE CHROME YOLUNU BULMA STRATEJİSİ (ZIRHLI MOD)
+ * RENDER ÜZERİNDE CHROME YOLUNU BULMA STRATEJİSİ (ULTRA ZIRHLI)
  */
 const getChromePath = () => {
-    // 1. STRATEJİ: Kesinleşmiş Manuel Yol (En yüksek öncelik)
-    const manualPath = '/opt/render/.cache/puppeteer/chrome/linux-147.0.7727.56/chrome-linux64/chrome';
-    if (fs.existsSync(manualPath)) {
-        console.log(`[SYSTEM] Chrome manuel yolda bulundu: ${manualPath}`);
-        return manualPath;
-    }
-
-    // 2. STRATEJİ: Recursive (Özyinelemeli) Derin Tarama
+    // 1. ÖNCELİK: Render'ın standart Puppeteer cache dizini
     const rootPath = '/opt/render/.cache/puppeteer/chrome';
+    
     try {
-        if (!fs.existsSync(rootPath)) return null;
+        if (!fs.existsSync(rootPath)) {
+            console.log("[SYSTEM] Puppeteer ana dizini bulunamadı, varsayılan aranıyor...");
+            return null;
+        }
 
+        // Klasör ağacını derinlemesine tara (Recursion)
         const findBinary = (dir) => {
             const files = fs.readdirSync(dir);
             for (const file of files) {
                 const fullPath = path.join(dir, file);
                 const stat = fs.statSync(fullPath);
+                
                 if (stat.isDirectory()) {
                     const found = findBinary(fullPath);
                     if (found) return found;
-                } else if (file === 'chrome' && fullPath.includes('chrome-linux64')) {
+                } 
+                // Render üzerindeki Chrome binary dosyasını yakala
+                else if (file === 'chrome' && fullPath.includes('chrome-linux64')) {
                     return fullPath;
                 }
             }
@@ -41,11 +42,11 @@ const getChromePath = () => {
 
         const detected = findBinary(rootPath);
         if (detected) {
-            console.log(`[SYSTEM] Chrome derin tarama ile bulundu: ${detected}`);
+            console.log(`[SYSTEM] Chrome bulundu: ${detected}`);
             return detected;
         }
     } catch (err) {
-        console.error("[SYSTEM] Tarama hatası:", err.message);
+        console.error("[SYSTEM] Tarama sırasında bir aksaklık çıktı:", err.message);
     }
 
     return null;
@@ -65,7 +66,7 @@ export const startBot = async (targetUrl, proxyData) => {
     
     const launchOptions = {
         headless: "new",
-        executablePath: detectedPath, // Otomatik bulunan veya manuel yol
+        executablePath: detectedPath, // Dinamik olarak bulunan yol
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -78,16 +79,17 @@ export const startBot = async (targetUrl, proxyData) => {
     };
 
     if (proxyData && proxyData.host) {
-        console.log(`[NETWORK] Proxy Aktif: ${proxyData.host}`);
+        console.log(`[NETWORK] Proxy Protokolü Aktif: ${proxyData.host}`);
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
-    console.log("[LAUNCH] Tarayıcı başlatılıyor...");
+    console.log("[LAUNCH] SNR ENGINE ateşleniyor...");
     const browser = await puppeteer.launch(launchOptions);
     
     try {
         const page = await browser.newPage();
 
+        // Proxy kimlik doğrulaması
         if (proxyData?.user && proxyData?.pass) {
             await page.authenticate({
                 username: proxyData.user,
@@ -99,14 +101,14 @@ export const startBot = async (targetUrl, proxyData) => {
         await page.setUserAgent(randomUA);
         await page.setViewport({ width: 1440, height: 900 });
 
-        console.log(`[NAVIGATION] Hedef: ${targetUrl}`);
+        console.log(`[NAVIGATION] Hedefe sızılıyor: ${targetUrl}`);
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 90000 });
 
-        console.log("[WAIT] İnsansı analiz...");
+        console.log("[WAIT] İnsansı davranış analizi başlatıldı...");
         await sleep(Math.floor(Math.random() * 4000) + 4000);
 
         const tweets = await page.$$('article[data-testid="tweet"]');
-        console.log(`[SCAN] ${tweets.length} tweet bulundu.`);
+        console.log(`[SCAN] Görüş alanında ${tweets.length} tweet var.`);
 
         if (tweets.length > 0) {
             const selectedIndices = Array.from({ length: Math.min(tweets.length, 10) }, (_, i) => i)
@@ -115,6 +117,8 @@ export const startBot = async (targetUrl, proxyData) => {
 
             for (const index of selectedIndices) {
                 const tweet = tweets[index];
+                
+                // Tweet'e odaklan
                 await tweet.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
                 await sleep(2500);
 
@@ -125,23 +129,26 @@ export const startBot = async (targetUrl, proxyData) => {
                 );
 
                 if (isAd) {
-                    console.log(`[TARGET] Reklam yakalandı, etkileşim simüle ediliyor...`);
+                    console.log(`[TARGET] Reklam yakalandı, "Ghost" etkileşim simüle ediliyor...`);
                     for(let j=0; j<4; j++) {
-                        await page.mouse.move(Math.random() * 500, Math.random() * 500);
+                        await page.mouse.move(Math.random() * 600, Math.random() * 600);
                         await sleep(600);
                     }
-                    await sleep(Math.floor(Math.random() * 5000) + 5000);
+                    // Reklam üzerinde bekleme süresi
+                    const waitTime = Math.floor(Math.random() * 5000) + 5000;
+                    console.log(`[ACTION] İçerik üzerinde ${waitTime/1000} saniye duraklanıyor.`);
+                    await sleep(waitTime);
                 }
             }
         }
 
-        console.log("[SUCCESS] Operasyon tamam.");
+        console.log("[SUCCESS] Hayalet operasyonu başarıyla tamamlandı.");
 
     } catch (error) {
-        console.error(`[CRITICAL] Hata: ${error.message}`);
+        console.error(`[CRITICAL] Motor kilitlendi: ${error.message}`);
         throw error; 
     } finally {
         await browser.close();
-        console.log("[CLEANUP] Sistem kapatıldı.");
+        console.log("[CLEANUP] İzler silindi, tarayıcı güvenli modda kapatıldı.");
     }
 };
