@@ -1,13 +1,14 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
-// Stealth eklentisini aktif et (Bot olduğumuzu gizleyen zırh)
+// Stealth eklentisini aktif et
 puppeteer.use(StealthPlugin());
+
+// Yardımcı bekleme fonksiyonu
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * SNR ENGINE - Ana Bot Fonksiyonu
- * @param {string} targetUrl - Hedef Twitter/X sayfası
- * @param {object} proxyData - Vekil sayfasından gelen {host, port, user, pass}
  */
 export const startBot = async (targetUrl, proxyData) => {
     const userAgents = [
@@ -17,18 +18,24 @@ export const startBot = async (targetUrl, proxyData) => {
     ];
 
     const launchOptions = {
-        headless: "new", // Arka planda çalışır
+        headless: "new",
+        // RENDER İÇİN KRİTİK: Kurulan Chrome'un yolunu otomatik bulur
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage', // Render hafıza hatalarını önler (Çok Önemli)
+            '--disable-gpu',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
             '--disable-web-security',
-            '--disable-features=WebRtcHideLocalIpsWithMdns', // IP Sızıntısını önler
+            '--disable-features=WebRtcHideLocalIpsWithMdns',
         ]
     };
 
-    // 1. ADIM: EĞER PROXY VARSA ENJEKTE ET
     if (proxyData && proxyData.host) {
-        console.log(`[PROXY] SOCKS5 Bağlantısı Kuruluyor: ${proxyData.host}`);
+        console.log(`[PROXY] Bağlantı Kuruluyor: ${proxyData.host}`);
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
@@ -37,7 +44,6 @@ export const startBot = async (targetUrl, proxyData) => {
     try {
         const page = await browser.newPage();
 
-        // 2. ADIM: PROXY KİMLİK DOĞRULAMA (USER/PASS VARSA)
         if (proxyData?.user && proxyData?.pass) {
             await page.authenticate({
                 username: proxyData.user,
@@ -45,28 +51,25 @@ export const startBot = async (targetUrl, proxyData) => {
             });
         }
 
-        // 3. ADIM: RASTGELE KİMLİK (USER-AGENT) SEÇİMİ
         const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
         await page.setUserAgent(randomUA);
-        
-        // Ekran çözünürlüğünü ayarla
         await page.setViewport({ width: 1920, height: 1080 });
 
         console.log(`[NAVIGATE] Hedefe gidiliyor: ${targetUrl}`);
         
-        // Sayfaya git ve yüklenmesini bekle
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        // Sayfa yüklenirken daha toleranslı davran (timeout 90 sn)
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 90000 });
 
-        // 4. ADIM: REKLAM TESPİTİ VE DURAKLAMA (SIMÜLASYON)
+        // Sayfa açıldıktan sonra 3-5 saniye "insan gibi" bekle
+        await sleep(Math.floor(Math.random() * 2000) + 3000);
+
         console.log("[SCAN] Reklamlar aranıyor...");
         
-        // Twitter reklamlarını (tweet görünümlü) yakala
         const tweets = await page.$$('article[data-testid="tweet"]');
 
         for (let i = 0; i < Math.min(tweets.length, 10); i++) {
             const tweet = tweets[i];
             
-            // Reklam olup olmadığını metin üzerinden kontrol et
             const isAd = await tweet.evaluate(el => 
                 el.innerText.includes('Promoted') || 
                 el.innerText.includes('Sponsorlu') || 
@@ -74,29 +77,31 @@ export const startBot = async (targetUrl, proxyData) => {
             );
 
             if (isAd) {
-                console.log(`[AD FOUND] Reklam tespit edildi! Odaklanılıyor...`);
+                console.log(`[AD FOUND] Reklam tespit edildi!`);
                 
-                // Reklama yavaşça kaydır (İnsan gibi)
                 await tweet.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 
-                // --- SENİN 2 SANİYE KURALIN (Rastgelelik ile) ---
-                const waitTime = Math.floor(Math.random() * (2600 - 1900 + 1) + 1900);
-                console.log(`[WAIT] Reklam üzerinde duruluyor: ${waitTime}ms`);
+                // Reklam üzerinde 2-4 saniye arası rastgele dur
+                const waitTime = Math.floor(Math.random() * (4000 - 2000 + 1) + 2000);
+                console.log(`[WAIT] İnceleme süresi: ${waitTime}ms`);
                 
-                await new Promise(resolve => setTimeout(resolve, waitTime));
+                await sleep(waitTime);
                 
-                // Etkileşimi artırmak için minik bir mouse hareketi simülasyonu
-                await page.mouse.move(100, 200); 
+                // Minik mouse hareketi
+                await page.mouse.move(Math.random() * 100, Math.random() * 100); 
             }
+
+            // Her tweet kontrolünden sonra 1 saniye nefes al (Saniyede 5 bin işlemi durduran yer burası!)
+            await sleep(1000);
         }
 
         console.log("[SUCCESS] Operasyon başarıyla tamamlandı.");
 
     } catch (error) {
         console.error(`[ERROR] SNR ENGINE Hatası: ${error.message}`);
-        throw error;
+        // Hatayı yukarı fırlat ki sistem sonsuz döngüye girmeden düzgünce kapansın
+        throw error; 
     } finally {
-        // Tarayıcıyı kapat
         await browser.close();
         console.log("[CLEANUP] Tarayıcı kapatıldı.");
     }
