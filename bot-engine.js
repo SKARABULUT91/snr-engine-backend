@@ -9,19 +9,20 @@ puppeteer.use(StealthPlugin());
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * RENDER ÜZERİNDE CHROME YOLUNU BULMA STRATEJİSİ (ULTRA ZIRHLI)
+ * RENDER ÜZERİNDE CHROME YOLUNU TESPİT EDER
+ * .puppeteerrc.cjs dosyasındaki cacheDirectory ile uyumlu çalışır.
  */
 const getChromePath = () => {
-    // 1. ÖNCELİK: Render'ın standart Puppeteer cache dizini
-    const rootPath = '/opt/render/.cache/puppeteer/chrome';
+    // Render üzerindeki kesin cache dizini
+    const cachePath = '/opt/render/.cache/puppeteer/chrome';
     
     try {
-        if (!fs.existsSync(rootPath)) {
-            console.log("[SYSTEM] Puppeteer ana dizini bulunamadı, varsayılan aranıyor...");
+        if (!fs.existsSync(cachePath)) {
+            console.log("[SYSTEM] Puppeteer cache dizini bulunamadı.");
             return null;
         }
 
-        // Klasör ağacını derinlemesine tara (Recursion)
+        // Klasörleri tara ve 'chrome' binary dosyasını bul
         const findBinary = (dir) => {
             const files = fs.readdirSync(dir);
             for (const file of files) {
@@ -31,30 +32,24 @@ const getChromePath = () => {
                 if (stat.isDirectory()) {
                     const found = findBinary(fullPath);
                     if (found) return found;
-                } 
-                // Render üzerindeki Chrome binary dosyasını yakala
-                else if (file === 'chrome' && fullPath.includes('chrome-linux64')) {
+                } else if (file === 'chrome' && fullPath.includes('chrome-linux64')) {
                     return fullPath;
                 }
             }
             return null;
         };
 
-        const detected = findBinary(rootPath);
+        const detected = findBinary(cachePath);
         if (detected) {
-            console.log(`[SYSTEM] Chrome bulundu: ${detected}`);
+            console.log(`[SYSTEM] Chrome başarıyla tetiklendi: ${detected}`);
             return detected;
         }
     } catch (err) {
-        console.error("[SYSTEM] Tarama sırasında bir aksaklık çıktı:", err.message);
+        console.error("[SYSTEM] Yol tarama hatası:", err.message);
     }
-
     return null;
 };
 
-/**
- * SNR ENGINE V2 - ÜST DÜZEY OPERASYON MOTORU
- */
 export const startBot = async (targetUrl, proxyData) => {
     const userAgents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -62,11 +57,11 @@ export const startBot = async (targetUrl, proxyData) => {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     ];
 
-    const detectedPath = getChromePath();
+    const chromePath = getChromePath();
     
     const launchOptions = {
         headless: "new",
-        executablePath: detectedPath, // Dinamik olarak bulunan yol
+        executablePath: chromePath, // Tespit edilen yol
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -78,77 +73,65 @@ export const startBot = async (targetUrl, proxyData) => {
         ]
     };
 
-    if (proxyData && proxyData.host) {
-        console.log(`[NETWORK] Proxy Protokolü Aktif: ${proxyData.host}`);
+    if (proxyData?.host) {
+        console.log(`[NETWORK] SOCKS5 Aktif: ${proxyData.host}`);
         launchOptions.args.push(`--proxy-server=socks5://${proxyData.host}:${proxyData.port}`);
     }
 
-    console.log("[LAUNCH] SNR ENGINE ateşleniyor...");
+    console.log("[LAUNCH] SNR ENGINE v2 başlatılıyor...");
     const browser = await puppeteer.launch(launchOptions);
     
     try {
         const page = await browser.newPage();
 
-        // Proxy kimlik doğrulaması
         if (proxyData?.user && proxyData?.pass) {
-            await page.authenticate({
-                username: proxyData.user,
-                password: proxyData.pass
-            });
+            await page.authenticate({ username: proxyData.user, password: proxyData.pass });
         }
 
         const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
         await page.setUserAgent(randomUA);
         await page.setViewport({ width: 1440, height: 900 });
 
-        console.log(`[NAVIGATION] Hedefe sızılıyor: ${targetUrl}`);
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 90000 });
+        console.log(`[NAVIGATION] Hedef: ${targetUrl}`);
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        console.log("[WAIT] İnsansı davranış analizi başlatıldı...");
-        await sleep(Math.floor(Math.random() * 4000) + 4000);
+        await sleep(Math.floor(Math.random() * 3000) + 3000);
 
         const tweets = await page.$$('article[data-testid="tweet"]');
-        console.log(`[SCAN] Görüş alanında ${tweets.length} tweet var.`);
+        console.log(`[SCAN] ${tweets.length} tweet radarda.`);
 
         if (tweets.length > 0) {
             const selectedIndices = Array.from({ length: Math.min(tweets.length, 10) }, (_, i) => i)
                 .sort(() => 0.5 - Math.random())
-                .slice(0, 3);
+                .slice(0, 2);
 
             for (const index of selectedIndices) {
                 const tweet = tweets[index];
-                
-                // Tweet'e odaklan
                 await tweet.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-                await sleep(2500);
+                await sleep(2000);
 
                 const isAd = await tweet.evaluate(el => 
-                    el.innerText.includes('Promoted') || 
-                    el.innerText.includes('Sponsorlu') || 
-                    el.innerText.includes('Reklam')
+                    el.innerText.includes('Promoted') || el.innerText.includes('Sponsorlu') || el.innerText.includes('Reklam')
                 );
 
                 if (isAd) {
-                    console.log(`[TARGET] Reklam yakalandı, "Ghost" etkileşim simüle ediliyor...`);
-                    for(let j=0; j<4; j++) {
-                        await page.mouse.move(Math.random() * 600, Math.random() * 600);
-                        await sleep(600);
+                    console.log(`[TARGET] Reklam bulundu, etkileşim simüle ediliyor...`);
+                    for(let j=0; j<3; j++) {
+                        await page.mouse.move(Math.random() * 400, Math.random() * 400);
+                        await sleep(500);
                     }
-                    // Reklam üzerinde bekleme süresi
-                    const waitTime = Math.floor(Math.random() * 5000) + 5000;
-                    console.log(`[ACTION] İçerik üzerinde ${waitTime/1000} saniye duraklanıyor.`);
-                    await sleep(waitTime);
+                    await sleep(5000);
                 }
             }
         }
 
-        console.log("[SUCCESS] Hayalet operasyonu başarıyla tamamlandı.");
+        console.log("[SUCCESS] Operasyon tamamlandı.");
 
     } catch (error) {
-        console.error(`[CRITICAL] Motor kilitlendi: ${error.message}`);
+        console.error(`[CRITICAL] Hata: ${error.message}`);
         throw error; 
     } finally {
         await browser.close();
-        console.log("[CLEANUP] İzler silindi, tarayıcı güvenli modda kapatıldı.");
+        console.log("[CLEANUP] Tarayıcı kapatıldı.");
     }
 };
