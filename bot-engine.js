@@ -113,3 +113,23 @@ export const startBot = async (targetUrl, proxyData) => {
         console.log("[CLEANUP] Sistem izleri temizlendi.");
     }
 };
+// ... (mevcut kodun devamı)
+if (isAd) {
+    console.log(`[TARGET] Reklam yakalandı! "Ghost Interaction" uygulanıyor...`);
+    
+    // Sadece fareyi rastgele oynatmak yerine, reklamın üzerinde biraz dur ve ufak tıkla-bırak yap
+    const rect = await tweet.boundingBox();
+    if (rect) {
+        // Reklamın tam ortasına git
+        await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        await sleep(1000);
+        
+        // Rastgele 2-3 saniye reklamın üzerinde daireler çiz (insansı hareket)
+        for(let j=0; j<5; j++) {
+            await page.mouse.move(rect.x + Math.random() * rect.width, rect.y + Math.random() * rect.height, {steps: 10});
+            await sleep(500);
+        }
+    }
+    await sleep(5000);
+}
+// ...
