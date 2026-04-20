@@ -609,6 +609,51 @@ async def bulk_unfollow(req: BulkUnfollowRequest):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+        from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+import threading
+
+# --- TELEGRAM KUMANDA MERKEZİ ---
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "BURAYA_TELEGRAM_TOKEN_YAZ")
+ADMIN_ID = os.environ.get("ADMIN_ID", "BURAYA_KENDI_TELEGRAM_ID_YAZ")
+tg_bot = Bot(token=TELEGRAM_TOKEN)
+dp = Dispatcher()
+
+def is_admin(m: types.Message): 
+    return str(m.from_user.id) == ADMIN_ID
+
+@dp.message(Command("tweet"))
+async def cmd_tweet(m: types.Message):
+    if not is_admin(m): return
+    
+    # Komutu parçalama: /tweet username mesajın geri kalanı
+    parts = m.text.split(maxsplit=2)
+    if len(parts) < 3:
+        await m.answer("⚠️ Kullanım: `/tweet kullanici_adi Merhaba X dünyası!`", parse_mode="Markdown")
+        return
+        
+    _, username, tweet_text = parts
+    
+    try:
+        await m.answer(f"⏳ @{username} hesabından tweet atılıyor...")
+        # Session Manager'dan ilgili kullanıcının oturumunu çek
+        client = sessions.get_client(username) 
+        
+        await human_delay(1.0, 3.0) # İnsansı bekleme
+        result = await client.create_tweet(text=tweet_text)
+        
+        await m.answer(f"✅ Başarılı! Tweet gönderildi.\nID: {result.id}")
+    except Exception as e:
+        await m.answer(f"❌ Hata oluştu: {str(e)}")
+
+def run_telegram_bot():
+    """Telegram botunu kendi döngüsünde çalıştırır"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(dp.start_polling(tg_bot))
+
+# Telegram botunu arka planda, API sunucusunu engellemeyecek şekilde başlat
+threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 # ==================== Startup ====================
 if __name__ == "__main__":
