@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import subprocess
 import sys
 import os
@@ -11,12 +14,16 @@ from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+# --- Ek Bağımlılık: Supabase ---
+# pip install supabase
+from supabase import create_client, Client as SupabaseClient
+
 # --- ENJEKTE EDİLEN KURULUM BLOĞU (4. DOSYADAN GÜNCELLENDİ) ---
 def initialize_vps():
     print("🚀 VPS ortamı kontrol ediliyor...")
     required_libs = [
-        "fastapi", "uvicorn", "twikit", "playwright", "pydantic", 
-        "pyotp", "aiohttp", "playwright-stealth", "fake-useragent"
+        "fastapi", "uvicorn", "twikit", "playwright", "pydantic",
+        "pyotp", "aiohttp", "playwright-stealth", "fake-useragent", "supabase", "aiogram"
     ]
     for lib in required_libs:
         try:
@@ -44,6 +51,14 @@ from fake_useragent import UserAgent
 # Dinamik User-Agent Üretici (4. Dosyadan)
 ua_factory = UserAgent()
 
+# --- Supabase Bağlantı Bilgileri (Render Environment Variables'a ekle) ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+if not SUPABASE_URL or not SUPABASE_KEY:
+    logger.warning("Supabase URL veya KEY bulunamadı. Supabase entegrasyonu devre dışı olabilir.")
+else:
+    supabase: SupabaseClient = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 app = FastAPI(title="X-KODCUM Backend", version="2.0.0")
 
 app.add_middleware(
@@ -55,7 +70,7 @@ app.add_middleware(
 
 # ==================== Session Manager ====================
 class SessionManager:
-    """Twikit oturum yöneticisi - çerez tabanlı"""
+    """Twikit oturum yöneticisi - çerez tabanlı ve Supabase ile kalıcı saklama"""
     def __init__(self):
         self.sessions = {}  # username -> twikit.Client
         self.cookies_dir = "cookies"
@@ -66,24 +81,53 @@ class SessionManager:
             import twikit
             client = twikit.Client(language="tr")
 
-            # 4. Dosyadaki dinamik UA entegrasyonu
+            # Dinamik UA entegrasyonu
             client._user_agent = user_agent or ua_factory.random
 
             if proxy:
                 client.set_proxy(proxy)
 
             cookie_file = os.path.join(self.cookies_dir, f"{username}.json")
+
+            # 1) Öncelikle yerel dosya çerezlerini dene
             if os.path.exists(cookie_file):
                 try:
                     client.load_cookies(cookie_file)
                     me = await client.user()
                     self.sessions[username] = client
-                    logger.info(f"✅ @{username} çerezlerle giriş yapıldı")
-                    return {"success": True, "message": "Çerezlerle giriş yapıldı", "user": {"name": me.name, "username": me.screen_name}}
+                    logger.info(f"✅ @{username} çerezlerle giriş yapıldı (local).")
+                    return {"success": True, "message": "Çerezlerle giriş yapıldı (local)", "user": {"name": me.name, "username": me.screen_name}}
                 except Exception:
-                    logger.info(f"Çerezler geçersiz, yeniden giriş yapılıyor: @{username}")
+                    logger.info(f"Çerez dosyası geçersiz, Supabase veya yeni giriş deneniyor: @{username}")
 
-            # Yeni giriş
+            # 2) Eğer Supabase yapılandırılmışsa, Supabase'den çerezleri dene
+            if 'supabase' in globals():
+                try:
+                    response = supabase.table("x_sessions").select("cookie_data").eq("username", username).execute()
+                    if response and getattr(response, "data", None):
+                        logger.info(f"🔄 @{username} çerezleri veritabanından çekildi.")
+                        temp_file = os.path.join(self.cookies_dir, f"temp_{username}.json")
+                        with open(temp_file, "w", encoding="utf-8") as f:
+                            json.dump(response.data[0]['cookie_data'], f)
+                        try:
+                            client.load_cookies(temp_file)
+                            os.remove(temp_file)
+                            me = await client.user()
+                            self.sessions[username] = client
+                            # Ayrıca yerel dosyaya da kaydet
+                            client.save_cookies(cookie_file)
+                            logger.info(f"✅ @{username} çerezlerle giriş yapıldı (supabase).")
+                            return {"success": True, "message": "Çerezlerle giriş yapıldı (supabase)", "user": {"name": me.name, "username": me.screen_name}}
+                        except Exception:
+                            logger.info(f"❌ Veritabanındaki çerezler eskimiş veya geçersiz: @{username}")
+                            try:
+                                os.remove(temp_file)
+                            except Exception:
+                                pass
+                except Exception as e:
+                    logger.warning(f"Supabase çerez kontrolünde hata: {e}")
+
+            # 3) Çerez yoksa veya geçersizse normal giriş yap
             await client.login(
                 auth_info_1=username,
                 auth_info_2=None,
@@ -91,9 +135,34 @@ class SessionManager:
                 totp_secret=two_fa_secret
             )
 
-            client.save_cookies(cookie_file)
+            # 4) Yeni çerezleri yerel dosyaya kaydet
+            try:
+                client.save_cookies(cookie_file)
+            except Exception:
+                logger.warning("Çerez dosyası kaydedilemedi (local).")
+
+            # 5) Supabase varsa çerezleri veritabanına upsert et
+            if 'supabase' in globals():
+                try:
+                    temp_file = os.path.join(self.cookies_dir, f"temp_{username}.json")
+                    client.save_cookies(temp_file)
+                    with open(temp_file, "r", encoding="utf-8") as f:
+                        cookie_json = json.load(f)
+                    supabase.table("x_sessions").upsert({
+                        "username": username,
+                        "cookie_data": cookie_json,
+                        "updated_at": "now()"
+                    }).execute()
+                    try:
+                        os.remove(temp_file)
+                    except Exception:
+                        pass
+                    logger.info(f"🔁 @{username} çerezleri Supabase'e kaydedildi.")
+                except Exception as e:
+                    logger.warning(f"Supabase'e çerez kaydetme hatası: {e}")
+
             self.sessions[username] = client
-            
+
             me = await client.user()
             logger.info(f"✅ @{username} başarıyla giriş yapıldı")
             return {
@@ -102,8 +171,8 @@ class SessionManager:
                 "user": {
                     "name": me.name,
                     "username": me.screen_name,
-                    "followers_count": me.followers_count,
-                    "following_count": me.following_count,
+                    "followers_count": getattr(me, "followers_count", None),
+                    "following_count": getattr(me, "following_count", None),
                 }
             }
         except Exception as e:
@@ -125,7 +194,16 @@ class SessionManager:
             del self.sessions[username]
             cookie_file = os.path.join(self.cookies_dir, f"{username}.json")
             if os.path.exists(cookie_file):
-                os.remove(cookie_file)
+                try:
+                    os.remove(cookie_file)
+                except Exception:
+                    pass
+            # Supabase'ten silme (isteğe bağlı)
+            if 'supabase' in globals():
+                try:
+                    supabase.table("x_sessions").delete().eq("username", username).execute()
+                except Exception:
+                    pass
 
 sessions = SessionManager()
 
@@ -257,10 +335,10 @@ async def account_info(req: AccountInfoRequest):
             "success": True,
             "name": me.name,
             "username": me.screen_name,
-            "followers_count": me.followers_count,
-            "following_count": me.following_count,
-            "tweet_count": me.statuses_count,
-            "profile_image_url": me.profile_image_url,
+            "followers_count": getattr(me, "followers_count", 0),
+            "following_count": getattr(me, "following_count", 0),
+            "tweet_count": getattr(me, "statuses_count", 0) if hasattr(me, "statuses_count") else getattr(me, "tweet_count", 0),
+            "profile_image_url": getattr(me, "profile_image_url", None),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -502,10 +580,11 @@ async def search_verified(req: SearchVerifiedRequest):
 @app.post('/api/bot-data')
 async def bot_data_receiver(req: BotDataRequest, x_api_key: Optional[str] = Header(None)):
     if x_api_key != 'KODCUM_SECURE_KEY_2026':
-        return HTTPException(status_code=403, detail="Yetkisiz bot erişimi!")
+        raise HTTPException(status_code=403, detail="Yetkisiz bot erişimi!")
     
     logger.info(f"🤖 {req.bot_id} botundan veri geldi: {req.url}")
     # Buraya Supabase veya DB kayıt mantığını ekleyebilirsin
+    # Örnek: supabase.table("bot_data").insert({...}).execute()
     return {"status": "Başarılı", "message": "Veri işlendi."}
 
 # ===== View Boost (4. Dosyadan Stealth + Render Path İyileştirmesi) =====
@@ -609,7 +688,9 @@ async def bulk_unfollow(req: BulkUnfollowRequest):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-        from aiogram import Bot, Dispatcher, types
+
+# ==================== TELEGRAM KUMANDA MERKEZİ ====================
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import threading
 
