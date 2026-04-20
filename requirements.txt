@@ -3,3 +3,5 @@ uvicorn
 twikit
 aiogram
 playwright
+playwright-stealth
+fake-useragent
