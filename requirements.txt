@@ -6,3 +6,4 @@ playwright
 playwright-stealth
 fake-useragent
 pip install aiogram
+psycopg2
